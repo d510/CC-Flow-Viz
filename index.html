@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CC FLOW VIZ - コールセンター運営シミュレーション</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+    }
+    #controls {
+      width: 1000px;
+      background: #000;
+      border: 1px solid #003a18;
+      border-bottom: none;
+      padding: 7px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #00ff41;
+      flex-wrap: wrap;
+    }
+    .ctrl-label { color: #00963c; font-size: 11px; white-space: nowrap; }
+    .ctrl-sep   { color: #002010; margin: 0 2px; user-select: none; }
+    .btn {
+      background: #000;
+      color: #00cc40;
+      border: 1px solid #003a18;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      padding: 4px 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #001808; border-color: #006030; }
+    .btn:disabled  { color: #002a10; border-color: #001a0a; cursor: default; }
+    .btn.hl        { border-color: #00ff41; color: #00ff41; background: #001e0c; }
+    .btn.spd-on    { border-color: #00cc40; color: #00cc40; background: #001408; }
+    #callInput {
+      background: #000;
+      color: #00ff41;
+      border: 1px solid #003a18;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      width: 62px;
+      padding: 4px 6px;
+      text-align: right;
+    }
+    #callInput:focus { outline: none; border-color: #00ff41; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- ── コントロールバー ─────────────────────────────── -->
+<div id="controls">
+  <button class="btn hl" id="btnStart">▶ 開始</button>
+  <button class="btn"    id="btnPause" disabled>⏸ 一時停止</button>
+  <button class="btn"    id="btnReset">↺ リセット</button>
+
+  <span class="ctrl-sep">|</span>
+  <span class="ctrl-label">速度:</span>
+  <button class="btn spd-on speed-btn" data-speed="1">1x</button>
+  <button class="btn speed-btn"        data-speed="5">5x</button>
+  <button class="btn speed-btn"        data-speed="10">10x</button>
+  <button class="btn speed-btn"        data-speed="100">100x</button>
+
+  <span class="ctrl-sep">|</span>
+  <span class="ctrl-label">入電数:</span>
+  <input type="number" id="callInput" min="50" max="2000" step="10">
+  <span class="ctrl-label">件/日</span>
+</div>
+<div id="canvas-container"></div>
+
+<script>
+
+// ============================================================
+// 初期値  ─ 入電数のデフォルト値はここだけ変えればOK
+// ============================================================
+const DEFAULT_CALLS = 850;
+
+// ============================================================
+// CONFIG  ─ ここを変えてチューニング
+// ============================================================
+const CONFIG = {
+  // ── 営業時間 ──────────────────────────────────────────────
+  SIM_START_HOUR:          9,               // 営業開始時刻（時）
+  SIM_END_HOUR:            18,              // 新規入電受付終了時刻（時）
+  SIM_HOURS:               9,               // 営業時間数（SIM_END - SIM_START）
+
+  // ── 再生速度 ──────────────────────────────────────────────
+  // 1x 速度 : 実時間 200秒で 9 時間分を再生
+  // 1 実秒 = 9*60/200 = 2.7 シミュ分
+  BASE_SIM_MIN_PER_SEC:    9 * 60 / 200,   // 実時間1秒あたりのシミュ進行分数（速度の基準値）
+
+  // ── システム ──────────────────────────────────────────────
+  FRAME_RATE:              60,              // 描画フレームレート（fps）
+  RANDOM_SEED:             42,              // 乱数シード（固定値=毎回同じ展開）
+
+  // ── キュー・放棄 ──────────────────────────────────────────
+  MAX_QUEUE_LENGTH:        30,              // 待機できる最大顧客数（満杯時は即放棄）
+  MAX_WAIT_MINUTES:        5,              // この時間（シミュ分）を超えると顧客が放棄する
+
+  // ── 時間帯別入電割合（合計 100%）────────────────────────
+  HOURLY_RATES: {
+    9:  0.250,  // 09:00〜10:00  25.0%（朝ピーク）
+    10: 0.150,  // 10:00〜11:00  15.0%
+    11: 0.120,  // 11:00〜12:00  12.0%
+    12: 0.140,  // 12:00〜13:00  14.0%（昼でも少し回復）
+    13: 0.110,  // 13:00〜14:00  11.0%
+    14: 0.080,  // 14:00〜15:00   8.0%
+    15: 0.060,  // 15:00〜16:00   6.0%
+    16: 0.050,  // 16:00〜17:00   5.0%
+    17: 0.040,  // 17:00〜18:00   4.0%（終業前）
+  },
+
+  // ── 再入電（放棄した顧客のコールバック）─────────────────
+  RETRY_RATE:              0.30,            // 放棄者のうち再入電する割合（0〜1）
+  RETRY_DELAY_MIN:         5,              // 再入電までの最短待ち時間（シミュ分）
+  RETRY_DELAY_MAX:         15,             // 再入電までの最長待ち時間（シミュ分）
+
+  // ── オペレータ人数 ────────────────────────────────────────
+  NEW_COUNT:               10,             // 新人オペレータ人数
+  VET_COUNT:               20,             // ベテランオペレータ人数
+
+  // ── 時給設定 ─────────────────────────────────────────────
+  NEW_WAGE:                3000,           // 新人の時給（円）
+  VET_WAGE:                4000,           // ベテランの時給（円）
+
+  // ── 処理能力（CPH = Calls Per Hour）─────────────────────
+  NEW_CPH_MIN:             2,              // 新人の最低処理件数（件/時）
+  NEW_CPH_MAX:             5,              // 新人の最高処理件数（件/時）
+  VET_CPH_MIN:             5,              // ベテランの最低処理件数（件/時）
+  VET_CPH_MAX:             7,              // ベテランの最高処理件数（件/時）
+
+  // ── 休憩設定 ─────────────────────────────────────────────
+  NEW_BREAK_MIN:           60,             // 新人の休憩時間（シミュ分・パートタイム）
+  VET_BREAK_MIN:           60,             // ベテランの休憩時間（シミュ分・フルタイム）
+  MAX_SIMULTANEOUS_BREAK:  6,              // 同時に休憩できる最大人数
+  BREAK_START_HOUR:        11,             // 休憩帯の開始時刻（時）
+  BREAK_END_HOUR:          15,             // 休憩帯の終了時刻（時）
+
+  // ── 表示設定 ─────────────────────────────────────────────
+  DOT_SIZE:                8,              // ドットの一辺サイズ（px）
+  DOT_GAP:                 2,              // ドット間の余白（px）
+  CANVAS_W:                1000,           // キャンバス幅（px）
+  CANVAS_H:                560,            // キャンバス高さ（px）
+  OP_COLS:                 6,              // オペレータグリッドの列数
+  OP_ROWS:                 5,              // オペレータグリッドの行数
+};
+
+// ============================================================
+// COLORS
+// ============================================================
+const C = {
+  TEXT:          [0, 255, 65],
+  TEXT_DIM:      [0, 130, 40],
+  BORDER:        [0, 160, 45],
+  BORDER_DIM:    [0, 70, 20],
+
+  DOT_INCOMING:  [255, 255, 255],
+  DOT_RETRY:     [255, 140,   0],
+  DOT_QUEUE:     [255, 220,   0],
+  DOT_SERVING:   [  0, 255,  65],
+  DOT_DONE:      [ 80, 140, 220],
+  DOT_ABANDONED: [220,  50,  50],
+
+  OP_IDLE:       [150, 150, 150],
+  OP_IDLE_OFF:   [ 55,  55,  55],  // 18:00以降の業務終了（idle）
+  OP_NEW_SRV:    [  0, 200,  65],
+  OP_VET_SRV:    [  0, 255, 120],
+  OP_BREAK:      [ 60, 100, 220],
+};
+
+// ============================================================
+// LAYOUT  ─ ゾーン座標 (px)
+// ============================================================
+const L = {
+  HEADER:    { x:   0, y:   0, w: 1000, h:  62 },
+  INCOMING:  { x:   5, y:  67, w: 110,  h: 383 },
+  QUEUE:     { x: 120, y:  67, w: 125,  h: 383 },
+  OPERATORS: { x: 250, y:  67, w: 405,  h: 383 },
+  DONE:      { x: 660, y:  67, w: 165,  h: 383 },
+  ABANDONED: { x: 830, y:  67, w: 165,  h: 383 },
+  FOOTER:    { x:   0, y: 455, w: 1000, h: 105 },
+};
+
+// ============================================================
+// SeededRandom  ─ p5 の random() 非依存
+// ============================================================
+class SeededRandom {
+  constructor(seed) { this.s = seed >>> 0; }
+  _n() {
+    this.s = (Math.imul(1664525, this.s) + 1013904223) >>> 0;
+    return this.s / 0x100000000;
+  }
+  range(lo, hi) { return lo + this._n() * (hi - lo); }
+  chance(p)     { return this._n() < p; }
+}
+let rng;
+
+// ============================================================
+// Dot
+// ============================================================
+class Dot {
+  constructor(callId, customerId, isRetry, spawnMin, x, y) {
+    this.callId     = callId;
+    this.customerId = customerId;
+    this.isRetry    = isRetry;
+    this.state      = 'INCOMING';
+    this.spawnMin   = spawnMin;
+    this.queueEnter = null;
+    this.serveStart = null;
+    this.opId       = null;
+    this.x = x;  this.y = y;
+    this.tx = x;  this.ty = y;
+  }
+
+  col() {
+    if (this.state === 'INCOMING') return this.isRetry ? C.DOT_RETRY : C.DOT_INCOMING;
+    if (this.state === 'QUEUE')    return C.DOT_QUEUE;
+    if (this.state === 'SERVING')  return C.DOT_SERVING;
+    if (this.state === 'DONE')     return C.DOT_DONE;
+    return C.DOT_ABANDONED;
+  }
+
+  update() {
+    const spd = 5, dx = this.tx - this.x, dy = this.ty - this.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > spd) { this.x += (dx / d) * spd; this.y += (dy / d) * spd; }
+    else         { this.x = this.tx;          this.y = this.ty; }
+  }
+
+  draw() {
+    const c = this.col();
+    fill(c[0], c[1], c[2]); noStroke();
+    rect(this.x, this.y, CONFIG.DOT_SIZE, CONFIG.DOT_SIZE);
+  }
+}
+
+// ============================================================
+// Operator
+// ============================================================
+class Operator {
+  constructor(id, type, cph) {
+    this.id       = id;
+    this.type     = type;
+    this.wage     = type === 'N' ? CONFIG.NEW_WAGE : CONFIG.VET_WAGE;
+    this.cph      = cph;
+    this.svcMin   = 60 / cph;
+    this.state    = 'idle';
+    this.callId   = null;
+    this.svcStart = null;
+    this.brkStart = null;
+    this.brkDur   = type === 'N' ? CONFIG.NEW_BREAK_MIN : CONFIG.VET_BREAK_MIN;
+    this.hadBreak  = false;
+    this.workMin    = 0;   // 総稼働分（休憩除く）
+    this.servingMin = 0;   // 顧客対応分のみ
+    this._lastMin   = 0;
+    this.idleSince  = 0;   // idle になった時刻（最長待機優先の基準）
+  }
+  accumWork(simMin) {
+    const d = simMin - this._lastMin;
+    if (d > 0) {
+      if (this.state !== 'break')  this.workMin    += d;
+      if (this.state === 'serving') this.servingMin += d;
+    }
+    this._lastMin = simMin;
+  }
+  cost() { return (this.workMin / 60) * this.wage; }
+}
+
+// ============================================================
+// Simulation
+// ============================================================
+class Simulation {
+  constructor(totalCalls) {
+    rng = new SeededRandom(CONFIG.RANDOM_SEED);
+
+    this.totalCallsTarget = totalCalls;
+    this.simMin    = 0;
+    this.running   = true;
+    this.finished  = false;
+
+    this.nextCID   = 0;
+    this.nextKID   = 0;
+
+    this.totalCalls     = 0;
+    this.totalAnswered  = 0;
+    this.totalAbandoned = 0;
+    this.totalRetry     = 0;
+    this.uniqueCustomers= 0;
+    this.maxQueue       = 0;
+    this.sumWait        = 0;
+
+    this.activeDots    = [];
+    this.doneCount     = 0;
+    this.abanCount     = 0;
+    this.queue         = [];
+    this.retryQueue    = [];
+    this.incomingTrail = []; // 入電ゾーンの残像（リアル時間でフェードアウト）
+
+    this.operators = [];
+    this._initOps();
+    this.schedule  = [];
+    this.schedIdx  = 0;
+    this._buildSchedule();
+  }
+
+  _initOps() {
+    for (let i = 0; i < CONFIG.NEW_COUNT; i++) {
+      this.operators.push(new Operator(i, 'N', rng.range(CONFIG.NEW_CPH_MIN, CONFIG.NEW_CPH_MAX)));
+    }
+    for (let i = 0; i < CONFIG.VET_COUNT; i++) {
+      this.operators.push(new Operator(CONFIG.NEW_COUNT + i, 'V', rng.range(CONFIG.VET_CPH_MIN, CONFIG.VET_CPH_MAX)));
+    }
+  }
+
+  _buildSchedule() {
+    const rates = CONFIG.HOURLY_RATES;
+    for (let h = CONFIG.SIM_START_HOUR; h < CONFIG.SIM_END_HOUR; h++) {
+      const count = Math.round(this.totalCallsTarget * (rates[h] || 0));
+      const base  = (h - CONFIG.SIM_START_HOUR) * 60;
+      for (let i = 0; i < count; i++) this.schedule.push(base + rng.range(0, 60));
+    }
+    this.schedule.sort((a, b) => a - b);
+  }
+
+  // ── アクセサ ────────────────────────────────────────────
+
+  timeStr() {
+    const h = CONFIG.SIM_START_HOUR + Math.floor(this.simMin / 60);
+    const m = Math.floor(this.simMin % 60);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+  progress()     { return Math.min(this.simMin / (CONFIG.SIM_HOURS * 60), 1); }
+  totalCost()    { return this.operators.reduce((s, o) => s + o.cost(), 0); }
+  responseRate() { return this.totalCalls > 0 ? (this.totalAnswered / this.totalCalls) * 100 : 0; }
+  avgWait()      { const n = this.totalAnswered + this.totalAbandoned; return n > 0 ? this.sumWait / n : 0; }
+  // リアルタイム表示用（瞬間稼働率）
+  utilRate() {
+    const active = this.operators.filter(o => o.state !== 'break');
+    if (!active.length) return 0;
+    return active.filter(o => o.state === 'serving').length / active.length * 100;
+  }
+  // 累積稼働率 = 顧客対応時間 / 総稼働時間（休憩除く）
+  utilRateCumul() {
+    const totalWork    = this.operators.reduce((s, o) => s + o.workMin,    0);
+    const totalServing = this.operators.reduce((s, o) => s + o.servingMin, 0);
+    return totalWork > 0 ? (totalServing / totalWork) * 100 : 0;
+  }
+  // 1人あたり平均 CPH
+  avgCPH() {
+    const h   = this.simMin / 60;
+    const ops = CONFIG.NEW_COUNT + CONFIG.VET_COUNT;
+    return h > 0 ? this.totalAnswered / h / ops : 0;
+  }
+
+  // ── メインループ ─────────────────────────────────────────
+  // サブステップ方式：速度に関わらず固定刻み(TICK)でシミュを進める
+  // → 放棄判定・対応完了などが速度によってズレない
+
+  update(dtReal, speedMul) {
+    if (!this.running || this.finished) return;
+    const TICK    = 0.25;  // 1サブステップあたりのシミュ分（15秒相当）
+    let remaining = dtReal * CONFIG.BASE_SIM_MIN_PER_SEC * speedMul;
+    while (remaining > 0 && !this.finished) {
+      this._tick(Math.min(TICK, remaining));
+      remaining -= TICK;
+    }
+  }
+
+  _tick(dt) {
+    this.simMin += dt;
+    const endMin = CONFIG.SIM_HOURS * 60;
+
+    this.operators.forEach(o => {
+      if (this.simMin >= endMin && o.state === 'idle') o._lastMin = this.simMin;
+      else o.accumWork(this.simMin);
+    });
+
+    // スポーン（受付時間内のみ）
+    while (this.schedIdx < this.schedule.length
+        && this.schedule[this.schedIdx] <= this.simMin
+        && this.simMin < endMin) {
+      this._spawnCall(this.nextCID++, false);
+      this.uniqueCustomers++;
+      this.schedIdx++;
+    }
+
+    // 再入電（受付時間内のみ）
+    const ready = this.retryQueue.filter(r => r.retryMin <= this.simMin && this.simMin < endMin);
+    this.retryQueue = this.retryQueue.filter(r => !(r.retryMin <= this.simMin && this.simMin < endMin));
+    ready.forEach(r => { this.totalRetry++; this._spawnCall(r.customerId, true); });
+
+    this._checkServiceDone();
+    this._checkAbandonment();
+    this._processBreaks();
+    this._assignQueue();
+
+    // 終了判定: 18:00 以降、全処理完了
+    if (this.simMin >= endMin
+     && this.queue.length === 0
+     && this.operators.every(o => o.state !== 'serving')
+     && this.retryQueue.filter(r => r.retryMin <= this.simMin).length === 0) {
+      this.finished = true;
+      this.running  = false;
+    }
+  }
+
+  // ── スポーン ────────────────────────────────────────────
+
+  _spawnCall(customerId, isRetry) {
+    const callId = this.nextKID++;
+    this.totalCalls++;
+    const iz  = L.INCOMING;
+    const dx  = iz.x + rng.range(5, iz.w - CONFIG.DOT_SIZE - 5);
+    const dy  = iz.y + rng.range(20, iz.h - CONFIG.DOT_SIZE - 5);
+    const dot = new Dot(callId, customerId, isRetry, this.simMin, dx, dy);
+
+    // 入電ゾーンの残像を記録（リアル時間ベースでフェードアウト）
+    this.incomingTrail.push({ x: dx, y: dy, isRetry, born: Date.now() });
+
+    if (this.queue.length < CONFIG.MAX_QUEUE_LENGTH) {
+      dot.state      = 'QUEUE';
+      dot.queueEnter = this.simMin;
+      this.queue.push(callId);
+      this.activeDots.push(dot);
+      if (this.queue.length > this.maxQueue) this.maxQueue = this.queue.length;
+      this._repositionQueue();
+    } else {
+      this.totalAbandoned++;
+      this.abanCount++;
+      this._scheduleRetry(customerId);
+    }
+  }
+
+  _repositionQueue() {
+    const qz     = L.QUEUE;
+    const step   = CONFIG.DOT_SIZE + CONFIG.DOT_GAP;
+    const perRow = Math.floor((qz.w - 10) / step);
+    this.queue.forEach((cid, idx) => {
+      const dot = this.activeDots.find(d => d.callId === cid);
+      if (!dot) return;
+      dot.tx = qz.x + 5 + (idx % perRow) * step;
+      dot.ty = qz.y + 20 + Math.floor(idx / perRow) * step;
+    });
+  }
+
+  _assignQueue() {
+    while (this.queue.length > 0) {
+      // 最長待機優先：idle の中で最も早く空いたオペレータを選ぶ
+      const idles = this.operators.filter(o => o.state === 'idle');
+      if (!idles.length) break;
+      const op = idles.reduce((a, b) => a.idleSince <= b.idleSince ? a : b);
+      const callId = this.queue.shift();
+      const dot    = this.activeDots.find(d => d.callId === callId);
+      if (!dot) continue;
+      dot.state    = 'SERVING';
+      dot.serveStart = this.simMin;
+      this.sumWait += (this.simMin - dot.queueEnter);
+      dot.opId     = op.id;
+      const pos    = this._opDotPos(op.id);
+      dot.tx = pos.x; dot.ty = pos.y;
+      op.state    = 'serving';
+      op.callId   = callId;
+      op.svcStart = this.simMin;
+      this._repositionQueue();
+    }
+  }
+
+  _checkServiceDone() {
+    this.operators.forEach(op => {
+      if (op.state !== 'serving' || op.svcStart === null) return;
+      if (this.simMin - op.svcStart < op.svcMin) return;
+      this.activeDots = this.activeDots.filter(d => d.callId !== op.callId);
+      this.totalAnswered++;
+      this.doneCount++;
+      op.state = 'idle'; op.callId = null; op.svcStart = null; op.idleSince = this.simMin;
+    });
+  }
+
+  _checkAbandonment() {
+    const expired = this.queue.filter(cid => {
+      const dot = this.activeDots.find(d => d.callId === cid);
+      return dot && (this.simMin - dot.queueEnter) >= CONFIG.MAX_WAIT_MINUTES;
+    });
+    expired.forEach(cid => {
+      this.queue = this.queue.filter(id => id !== cid);
+      const dot  = this.activeDots.find(d => d.callId === cid);
+      if (!dot) return;
+      this.sumWait += (this.simMin - dot.queueEnter);
+      this.totalAbandoned++;
+      this.abanCount++;
+      this._scheduleRetry(dot.customerId);
+      this.activeDots = this.activeDots.filter(d => d !== dot);
+    });
+    if (expired.length > 0) this._repositionQueue();
+  }
+
+  _scheduleRetry(customerId) {
+    if (rng.chance(CONFIG.RETRY_RATE)) {
+      this.retryQueue.push({
+        customerId,
+        retryMin: this.simMin + rng.range(CONFIG.RETRY_DELAY_MIN, CONFIG.RETRY_DELAY_MAX),
+      });
+    }
+  }
+
+  _processBreaks() {
+    const brkS = (CONFIG.BREAK_START_HOUR - CONFIG.SIM_START_HOUR) * 60;
+
+    // 休憩終了チェック
+    this.operators.forEach(op => {
+      if (op.state === 'break' && op.brkStart !== null
+       && this.simMin - op.brkStart >= op.brkDur) {
+        op.state = 'idle'; op.brkStart = null; op.idleSince = this.simMin;
+      }
+    });
+
+    // 12:00 以降、idle かつ未休憩のオペレータを休憩に送る（同時上限あり）
+    // 12:00時点で受電中だったオペレータは通話終了後にここで捕捉される
+    if (this.simMin < brkS) return;
+    const onBreak = this.operators.filter(o => o.state === 'break').length;
+    if (onBreak >= CONFIG.MAX_SIMULTANEOUS_BREAK) return;
+    let slots = CONFIG.MAX_SIMULTANEOUS_BREAK - onBreak;
+    for (const op of this.operators.filter(o => o.state === 'idle' && !o.hadBreak)) {
+      if (slots <= 0) break;
+      op.state = 'break'; op.brkStart = this.simMin; op.hadBreak = true; slots--;
+    }
+  }
+
+  _opDotPos(opId) {
+    const col   = opId % CONFIG.OP_COLS;
+    const row   = Math.floor(opId / CONFIG.OP_COLS);
+    const oz    = L.OPERATORS;
+    const cellW = Math.floor(oz.w / CONFIG.OP_COLS);
+    return {
+      x: oz.x + 6 + col * cellW + cellW - CONFIG.DOT_SIZE - 4,
+      y: oz.y + 30 + row * 28 + (28 - CONFIG.DOT_SIZE) / 2,
+    };
+  }
+}
+
+// ============================================================
+// グローバル状態
+// ============================================================
+let sim;
+let speedMul    = 1;
+let isPaused    = false;
+let hasStarted  = false;
+let showSummary = false;
+let summarySnap = null;
+
+// ============================================================
+// p5.js
+// ============================================================
+
+function setup() {
+  const cnv = createCanvas(CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+  cnv.parent('canvas-container');
+  frameRate(CONFIG.FRAME_RATE);
+  textFont('Courier New');
+  document.getElementById('callInput').value = DEFAULT_CALLS;
+  sim = new Simulation(DEFAULT_CALLS);
+  _initControls();
+}
+
+function draw() {
+  background(0);
+
+  // シミュレーション進行
+  if (hasStarted && !isPaused && !showSummary && sim.running) {
+    sim.update(deltaTime / 1000, speedMul);
+  }
+
+  // 完了 → サマリー
+  if (hasStarted && sim.finished && !showSummary) {
+    summarySnap = _captureSummary();
+    showSummary = true;
+    _syncButtons();
+  }
+
+  if (showSummary) { drawSummary(); return; }
+
+  drawHeader();
+  drawZones();
+  drawOperators();
+  drawIncomingTrail();
+  drawActiveDots();
+  drawAccumDots();
+  drawFooter();
+
+  if (!hasStarted) _drawOverlay('▶ 開始ボタンを押してください', false);
+  if (isPaused)    _drawOverlay('⏸  一時停止中', true);
+}
+
+function mousePressed() {
+  if (!showSummary) return;
+  // サマリー画面の「最初から再生」ボタン
+  const bx = width / 2 - 110, by = height / 2 + 108;
+  if (mouseX > bx && mouseX < bx + 220 && mouseY > by && mouseY < by + 36) _onStart();
+}
+
+// ============================================================
+// ボタン・コントロール
+// ============================================================
+
+function _initControls() {
+  document.getElementById('btnStart').addEventListener('click', _onStart);
+  document.getElementById('btnPause').addEventListener('click', _onPause);
+  document.getElementById('btnReset').addEventListener('click', _onReset);
+  document.querySelectorAll('.speed-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      speedMul = parseFloat(btn.dataset.speed);
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('spd-on'));
+      btn.classList.add('spd-on');
+    });
+  });
+}
+
+function _onStart() {
+  const n = Math.min(2000, Math.max(50, parseInt(document.getElementById('callInput').value) || DEFAULT_CALLS));
+  document.getElementById('callInput').value = n;
+  sim         = new Simulation(n);
+  hasStarted  = true;
+  isPaused    = false;
+  showSummary = false;
+  summarySnap = null;
+  _syncButtons();
+}
+
+function _onPause() {
+  if (!hasStarted || sim.finished) return;
+  isPaused = !isPaused;
+  _syncButtons();
+}
+
+function _onReset() {
+  const n = Math.min(2000, Math.max(50, parseInt(document.getElementById('callInput').value) || DEFAULT_CALLS));
+  document.getElementById('callInput').value = n;
+  sim         = new Simulation(n);
+  hasStarted  = false;
+  isPaused    = false;
+  showSummary = false;
+  summarySnap = null;
+  _syncButtons();
+}
+
+function _syncButtons() {
+  const bs = document.getElementById('btnStart');
+  const bp = document.getElementById('btnPause');
+
+  if (!hasStarted || sim.finished) {
+    bs.textContent = '▶ 開始';         bs.disabled = false;
+    bp.textContent = '⏸ 一時停止';    bp.disabled = true;
+    bp.classList.remove('hl');
+  } else if (isPaused) {
+    bs.textContent = '▶ 再スタート';   bs.disabled = false;
+    bp.textContent = '▶ 再開';         bp.disabled = false;
+    bp.classList.add('hl');
+  } else {
+    bs.textContent = '↺ 再スタート';   bs.disabled = false;
+    bp.textContent = '⏸ 一時停止';    bp.disabled = false;
+    bp.classList.remove('hl');
+  }
+}
+
+// ============================================================
+// 描画: ヘッダー
+// ============================================================
+function drawHeader() {
+  const hz = L.HEADER;
+  _box(hz, true);
+
+  fill(C.TEXT[0], C.TEXT[1], C.TEXT[2]); noStroke();
+  textSize(11); textAlign(LEFT, TOP);
+  text('CC FLOW VIZ  |  コールセンター運営シミュレーション', hz.x + 10, hz.y + 8);
+
+  textSize(22); textAlign(CENTER, TOP);
+  text(sim.timeStr(), hz.x + hz.w / 2, hz.y + 5);
+
+  // プログレスバー
+  const pbx = hz.x + 10, pby = hz.y + 38, pbw = hz.w - 20, pbh = 10;
+  stroke(C.BORDER_DIM[0], C.BORDER_DIM[1], C.BORDER_DIM[2]);
+  strokeWeight(1); noFill(); rect(pbx, pby, pbw, pbh);
+  noStroke(); fill(0, 170, 45);
+  rect(pbx + 1, pby + 1, (pbw - 2) * sim.progress(), pbh - 2);
+
+  textSize(9); fill(C.TEXT_DIM[0], C.TEXT_DIM[1], C.TEXT_DIM[2]);
+  textAlign(LEFT, TOP);  text('09:00', pbx,       pby + pbh + 3);
+  textAlign(RIGHT, TOP); text('18:00', pbx + pbw, pby + pbh + 3);
+  textAlign(CENTER, TOP);
+  const speedLabel = speedMul > 1 ? ` [${speedMul}x]` : '';
+  text('▶▶ RUNNING' + speedLabel, hz.x + hz.w / 2, pby + pbh + 3);
+}
+
+// ============================================================
+// 描画: ゾーン枠
+// ============================================================
+function drawZones() {
+  [
+    { z: L.INCOMING,  label: '入  電' },
+    { z: L.QUEUE,     label: '待  機' },
+    { z: L.OPERATORS, label: 'オペレータ' },
+    { z: L.DONE,      label: '完  了' },
+    { z: L.ABANDONED, label: '放  棄' },
+  ].forEach(({ z, label }) => {
+    _box(z, false);
+    fill(C.TEXT_DIM[0], C.TEXT_DIM[1], C.TEXT_DIM[2]); noStroke();
+    textSize(9); textAlign(LEFT, TOP);
+    text(label, z.x + 4, z.y + 3);
+  });
+}
+
+// ============================================================
+// 描画: オペレータグリッド
+// ============================================================
+function drawOperators() {
+  const oz    = L.OPERATORS;
+  const cellW = Math.floor(oz.w / CONFIG.OP_COLS);
+  const cellH = 28;
+  sim.operators.forEach(op => {
+    const col = op.id % CONFIG.OP_COLS;
+    const row = Math.floor(op.id / CONFIG.OP_COLS);
+    const bx = oz.x + 6 + col * cellW;
+    const by = oz.y + 30 + row * cellH;
+    const afterHours = sim.simMin >= CONFIG.SIM_HOURS * 60;
+    const c  = op.state === 'break'   ? C.OP_BREAK
+             : op.state === 'serving' ? (op.type === 'N' ? C.OP_NEW_SRV : C.OP_VET_SRV)
+             : afterHours             ? C.OP_IDLE_OFF
+             :                          C.OP_IDLE;
+    stroke(c[0], c[1], c[2]); strokeWeight(1); noFill();
+    rect(bx, by, cellW - 4, 20);
+    fill(c[0], c[1], c[2]); noStroke(); textSize(9); textAlign(LEFT, CENTER);
+    let sym;
+    if (op.state === 'serving') {
+      sym = '●';
+    } else if (op.state === 'break') {
+      const rem = Math.max(0, Math.ceil(op.brkDur - (sim.simMin - op.brkStart)));
+      sym = `B(${rem})`;
+    } else {
+      sym = ' ';
+    }
+    text(`${op.type}:${sym}`, bx + 3, by + 10);
+  });
+}
+
+// ============================================================
+// 描画: アクティブドット
+// ============================================================
+function drawActiveDots() {
+  sim.activeDots.forEach(d => { d.update(); d.draw(); });
+}
+
+// ============================================================
+// 描画: 入電ゾーン残像（リアル時間 1.5秒でフェードアウト）
+// ============================================================
+function drawIncomingTrail() {
+  const DURATION = 1500; // ミリ秒
+  const now = Date.now();
+  // 期限切れを除去
+  sim.incomingTrail = sim.incomingTrail.filter(t => now - t.born < DURATION);
+  sim.incomingTrail.forEach(t => {
+    const ratio = (now - t.born) / DURATION;      // 0→1（新→古）
+    const alpha = 255 * (1 - ratio);
+    const col   = t.isRetry ? C.DOT_RETRY : C.DOT_INCOMING;
+    fill(col[0], col[1], col[2], alpha);
+    noStroke();
+    rect(t.x, t.y, CONFIG.DOT_SIZE, CONFIG.DOT_SIZE);
+  });
+}
+
+// ============================================================
+// 描画: 蓄積ドット（完了・放棄）
+// ============================================================
+function drawAccumDots() {
+  _accumZone(L.DONE,      sim.doneCount, C.DOT_DONE);
+  _accumZone(L.ABANDONED, sim.abanCount, C.DOT_ABANDONED);
+}
+
+function _accumZone(z, count, col) {
+  // 10件ごとに合体: 小=1件(8px・無表示) / 中=10件(14px・"10") / 大=100件(22px・"100")
+  const SZ  = { s: CONFIG.DOT_SIZE, m: 14, l: 22 };
+  const GAP = CONFIG.DOT_GAP;
+  const hundreds = Math.floor(count / 100);
+  const tens     = Math.floor((count % 100) / 10);
+  const ones     = count % 10;
+
+  let curY = z.y + 18;
+  const bottomLimit = z.y + z.h - 4;
+
+  function drawTier(items, size, label) {
+    if (items === 0) return;
+    const step   = size + GAP;
+    const perRow = Math.floor((z.w - 10) / step);
+    for (let i = 0; i < items; i++) {
+      const rx = z.x + 5 + (i % perRow) * step;
+      const ry = curY + Math.floor(i / perRow) * step;
+      if (ry + size > bottomLimit) break;
+      // ドット本体
+      fill(col[0], col[1], col[2]); noStroke();
+      rect(rx, ry, size, size);
+      // 中央テキスト
+      if (label) {
+        fill(0); noStroke();
+        textSize(size === SZ.l ? 7 : 6);
+        textAlign(CENTER, CENTER);
+        text(label, rx + size / 2, ry + size / 2);
+      }
+    }
+    curY += Math.ceil(items / perRow) * step + 2;
+  }
+
+  drawTier(hundreds, SZ.l, '100');
+  drawTier(tens,     SZ.m, '10');
+  drawTier(ones,     SZ.s, null);
+}
+
+// ============================================================
+// 描画: フッター（メトリクス + 凡例）
+// ============================================================
+function drawFooter() {
+  const fz = L.FOOTER;
+  _box(fz, true);
+
+  fill(C.TEXT[0], C.TEXT[1], C.TEXT[2]); noStroke();
+  textSize(11); textAlign(LEFT, TOP);
+  text(
+    `入電: ${sim.totalCalls}件  受電: ${sim.totalAnswered}件  放棄: ${sim.totalAbandoned}件  再入電: ${sim.totalRetry}件  応答率: ${sim.responseRate().toFixed(1)}%`,
+    fz.x + 10, fz.y + 12
+  );
+  text(
+    `稼働率: ${sim.utilRate().toFixed(1)}%  CPH: ${sim.avgCPH().toFixed(1)}  平均待ち: ${sim.avgWait().toFixed(1)}分  人件費: ¥${Math.floor(sim.totalCost()).toLocaleString()}`,
+    fz.x + 10, fz.y + 32
+  );
+
+  // 凡例
+  const items = [
+    { label: '入電',   c: C.DOT_INCOMING },
+    { label: '再入電', c: C.DOT_RETRY    },
+    { label: '待機',   c: C.DOT_QUEUE    },
+    { label: '対応中', c: C.DOT_SERVING  },
+    { label: '完了',   c: C.DOT_DONE     },
+    { label: '放棄',   c: C.DOT_ABANDONED},
+  ];
+  const offsets = [0, 52, 112, 164, 228, 278];
+  items.forEach((item, i) => {
+    const lx = fz.x + 10 + offsets[i];
+    const ly = fz.y + 62;
+    fill(item.c[0], item.c[1], item.c[2]); noStroke();
+    rect(lx, ly + 1, 7, 7);
+    fill(C.TEXT_DIM[0], C.TEXT_DIM[1], C.TEXT_DIM[2]);
+    textSize(9); textAlign(LEFT, TOP);
+    text(item.label, lx + 10, ly);
+  });
+
+  // 入電数ガイド
+  textSize(9); fill(C.TEXT_DIM[0], C.TEXT_DIM[1], C.TEXT_DIM[2]);
+  textAlign(RIGHT, TOP);
+  text(`設定入電数: ${sim.totalCallsTarget}件/日`, fz.x + fz.w - 10, fz.y + 62);
+}
+
+// ============================================================
+// 描画: サマリー画面
+// ============================================================
+function drawSummary() {
+  background(0);
+  const s  = summarySnap;
+  const cx = width / 2, cy = height / 2;
+  const bw = 440, bh = 320;
+  const bx = cx - bw / 2, by = cy - bh / 2;
+
+  stroke(C.TEXT[0], C.TEXT[1], C.TEXT[2]); strokeWeight(2); noFill();
+  rect(bx, by, bw, bh);
+
+  fill(C.TEXT[0], C.TEXT[1], C.TEXT[2]); noStroke();
+  textSize(15); textAlign(CENTER, TOP);
+  text('シミュレーション完了', cx, by + 16);
+
+  stroke(C.BORDER_DIM[0], C.BORDER_DIM[1], C.BORDER_DIM[2]); strokeWeight(1);
+  line(bx + 20, by + 42, bx + bw - 20, by + 42); noStroke();
+
+  const rows = [
+    ['総入電数',         `${s.totalCalls} 件`],
+    ['受電数',           `${s.totalAnswered} 件  (${s.responseRate.toFixed(1)}%)`],
+    ['放棄数',           `${s.totalAbandoned} 件  (${(100 - s.responseRate).toFixed(1)}%)`],
+    ['再入電数',         `${s.totalRetry} 件`],
+    ['ユニーク顧客数',   `${s.uniqueCustomers} 名`],
+    ['最大同時待ち',     `${s.maxQueue} 名`],
+    ['平均待ち時間',     `${s.avgWait.toFixed(1)} 分`],
+    ['オペレータ稼働率', `${s.utilRate.toFixed(1)} %`],
+    ['総人件費',         `¥ ${Math.floor(s.totalCost).toLocaleString()}`],
+    ['1件あたりコスト',  `¥ ${Math.floor(s.costPerCall).toLocaleString()}`],
+  ];
+  textSize(12);
+  rows.forEach((row, i) => {
+    const ry = by + 54 + i * 22;
+    fill(C.TEXT_DIM[0], C.TEXT_DIM[1], C.TEXT_DIM[2]);
+    textAlign(LEFT, TOP);  text(row[0], bx + 40,        ry);
+    fill(C.TEXT[0], C.TEXT[1], C.TEXT[2]);
+    textAlign(RIGHT, TOP); text(row[1], bx + bw - 40,   ry);
+  });
+
+  // リプレイボタン
+  const rbx = cx - 110, rby = by + bh - 50, rbw = 220, rbh = 34;
+  const hov = mouseX > rbx && mouseX < rbx + rbw && mouseY > rby && mouseY < rby + rbh;
+  stroke(C.TEXT[0], C.TEXT[1], C.TEXT[2]); strokeWeight(1);
+  fill(hov ? color(0, 40, 15) : color(0)); rect(rbx, rby, rbw, rbh);
+  fill(C.TEXT[0], C.TEXT[1], C.TEXT[2]); noStroke();
+  textSize(12); textAlign(CENTER, CENTER);
+  text('[ 最初から再生 ]', cx, rby + rbh / 2);
+}
+
+// ============================================================
+// 描画: オーバーレイ（準備中 / 一時停止）
+// ============================================================
+function _drawOverlay(msg, dim) {
+  if (dim) { noStroke(); fill(0, 0, 0, 140); rect(0, 0, width, height); }
+  fill(C.TEXT[0], C.TEXT[1], C.TEXT[2]); noStroke();
+  textSize(18); textAlign(CENTER, CENTER);
+  text(msg, width / 2, height / 2);
+}
+
+// ============================================================
+// サマリーキャプチャ
+// ============================================================
+function _captureSummary() {
+  return {
+    totalCalls:      sim.totalCalls,
+    totalAnswered:   sim.totalAnswered,
+    totalAbandoned:  sim.totalAbandoned,
+    totalRetry:      sim.totalRetry,
+    uniqueCustomers: sim.uniqueCustomers,
+    responseRate:    sim.responseRate(),
+    maxQueue:        sim.maxQueue,
+    avgWait:         sim.avgWait(),
+    utilRate:        sim.utilRateCumul(),
+    totalCost:       sim.totalCost(),
+    costPerCall:     sim.totalAnswered > 0 ? sim.totalCost() / sim.totalAnswered : 0,
+  };
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function _box(z, bright) {
+  const c = bright ? C.BORDER : C.BORDER_DIM;
+  stroke(c[0], c[1], c[2]); strokeWeight(1); noFill();
+  rect(z.x, z.y, z.w, z.h);
+}
+
+</script>
+</body>
+</html>

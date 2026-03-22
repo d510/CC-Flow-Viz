@@ -232,8 +232,8 @@ class Dot {
     return C.DOT_ABANDONED;
   }
 
-  update() {
-    const spd = 5, dx = this.tx - this.x, dy = this.ty - this.y;
+  update(speedMul = 1) {
+    const spd = 5 * speedMul, dx = this.tx - this.x, dy = this.ty - this.y;
     const d = Math.sqrt(dx * dx + dy * dy);
     if (d > spd) { this.x += (dx / d) * spd; this.y += (dy / d) * spd; }
     else         { this.x = this.tx;          this.y = this.ty; }
@@ -758,7 +758,7 @@ function drawOperators() {
 // 描画: アクティブドット
 // ============================================================
 function drawActiveDots() {
-  sim.activeDots.forEach(d => { d.update(); d.draw(); });
+  sim.activeDots.forEach(d => { d.update(speedMul); d.draw(); });
 }
 
 // ============================================================

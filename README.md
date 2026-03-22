@@ -11,8 +11,7 @@
 
 > `index.html` をブラウザで開くだけで動作します（サーバー不要）。
 
-<!-- 公開URL が決まったらここに追記 -->
-<!-- 例: https://your-domain.com/cc_flow_viz/ -->
+**https://d510.github.io/CC-Flow-Viz/**
 
 ---
 

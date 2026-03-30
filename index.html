@@ -12,10 +12,21 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       min-height: 100vh;
       font-family: 'Courier New', monospace;
+      overflow-x: hidden;
     }
+
+    /* ── スケーラブルラッパー ── */
+    #viz-wrapper {
+      /* JS が transform-origin: top center でスケールする
+         実際の描画サイズ・margin は JS で設定する */
+      transform-origin: top center;
+      display: flex;
+      flex-direction: column;
+    }
+
     #controls {
       width: 1000px;
       background: #000;
@@ -39,6 +50,8 @@
       padding: 4px 11px;
       cursor: pointer;
       white-space: nowrap;
+      /* タッチ操作で誤タップ防止 */
+      touch-action: manipulation;
     }
     .btn:hover:not(:disabled) { background: #001808; border-color: #006030; }
     .btn:disabled  { color: #002a10; border-color: #001a0a; cursor: default; }
@@ -53,6 +66,7 @@
       width: 62px;
       padding: 4px 6px;
       text-align: right;
+      touch-action: manipulation;
     }
     #callInput:focus { outline: none; border-color: #00ff41; }
     #ghLink {
@@ -64,15 +78,193 @@
     }
     #ghLink:hover { color: #00ff41; }
     canvas { display: block; }
+
+    /* ── モバイルコントロール（デフォルト非表示） ── */
+    #mobile-controls {
+      display: none;
+    }
+
+    /* ── モバイル専用スタイル（768px以下） ── */
+    @media (max-width: 768px) {
+      /* PC用コントロールバーを非表示 */
+      #controls {
+        display: none !important;
+      }
+
+      /* ラッパーのスケール無効化（JSでも制御） */
+      #viz-wrapper {
+        transform: none !important;
+        margin-bottom: 0 !important;
+        width: 100vw;
+      }
+
+      /* モバイルコントロールを表示 */
+      #mobile-controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+        padding: 20px 16px 40px;
+        background: #000;
+        gap: 16px;
+      }
+
+      /* ── ドット型ボタン群 ── */
+      .mobile-dot-group {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .mobile-dot-group-label {
+        color: #00963c;
+        font-size: 10px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+
+      .mobile-dot-btn {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: #000;
+        color: #00cc40;
+        border: 2px solid #003a18;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+        position: relative;
+      }
+
+      .mobile-dot-btn:active {
+        background: #001e0c;
+        border-color: #00ff41;
+        box-shadow: 0 0 12px rgba(0, 255, 65, 0.3);
+      }
+
+      .mobile-dot-btn:disabled {
+        color: #002a10;
+        border-color: #001a0a;
+        cursor: default;
+        box-shadow: none;
+      }
+
+      .mobile-dot-btn.hl {
+        border-color: #00ff41;
+        color: #00ff41;
+        background: #001e0c;
+        box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+      }
+
+      .mobile-dot-btn.spd-on {
+        border-color: #00cc40;
+        color: #00cc40;
+        background: #001408;
+        box-shadow: 0 0 6px rgba(0, 204, 64, 0.15);
+      }
+
+      /* ── 再生コントロール（縦配置） ── */
+      .mobile-playback {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .mobile-playback .mobile-dot-btn {
+        width: 64px;
+        height: 64px;
+        font-size: 20px;
+      }
+
+      .mobile-playback-secondary {
+        display: flex;
+        gap: 16px;
+      }
+
+      .mobile-playback-secondary .mobile-dot-btn {
+        width: 48px;
+        height: 48px;
+        font-size: 13px;
+      }
+
+      /* ── 速度コントロール（縦配置） ── */
+      .mobile-speed {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .mobile-speed .mobile-dot-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 11px;
+      }
+
+      /* ── 入電数コントロール ── */
+      .mobile-calls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .mobile-calls-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .mobile-calls .mobile-dot-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+      }
+
+      #mobileCallDisplay {
+        color: #00ff41;
+        font-family: 'Courier New', monospace;
+        font-size: 16px;
+        min-width: 60px;
+        text-align: center;
+      }
+
+      /* ── 接続ライン（ドット間を結ぶ縦の線） ── */
+      .mobile-connector {
+        width: 2px;
+        height: 16px;
+        background: #003a18;
+      }
+
+      /* GitHubリンク */
+      .mobile-gh-link {
+        color: #00963c;
+        font-size: 10px;
+        text-decoration: none;
+        margin-top: 8px;
+      }
+      .mobile-gh-link:hover { color: #00ff41; }
+    }
   </style>
 </head>
 <body>
 
-<!-- ── コントロールバー ─────────────────────────────── -->
+<!-- ── スケーラブルラッパー ─────────────────────────── -->
+<div id="viz-wrapper">
+
+<!-- ── コントロールバー（PC用） ─────────────────────── -->
 <div id="controls">
-  <button class="btn hl" id="btnStart">▶ 開始</button>
-  <button class="btn"    id="btnPause" disabled>⏸ 一時停止</button>
-  <button class="btn"    id="btnReset">↺ リセット</button>
+  <button class="btn hl" id="btnStart">&#9654; 開始</button>
+  <button class="btn"    id="btnPause" disabled>&#9198; 一時停止</button>
+  <button class="btn"    id="btnReset">&#8634; リセット</button>
 
   <span class="ctrl-sep">|</span>
   <span class="ctrl-label">速度:</span>
@@ -88,6 +280,57 @@
   <a id="ghLink" href="https://github.com/d510/CC-Flow-Viz" target="_blank" rel="noopener">[ GitHub ]</a>
 </div>
 <div id="canvas-container"></div>
+
+</div><!-- /#viz-wrapper -->
+
+<!-- ── モバイルコントロール（768px以下で表示） ── -->
+<div id="mobile-controls">
+
+  <!-- 再生コントロール -->
+  <div class="mobile-dot-group">
+    <span class="mobile-dot-group-label">PLAY</span>
+    <div class="mobile-playback">
+      <button class="mobile-dot-btn hl" id="mbtnStart" aria-label="開始">&#9654;</button>
+      <div class="mobile-connector"></div>
+      <div class="mobile-playback-secondary">
+        <button class="mobile-dot-btn" id="mbtnPause" disabled aria-label="一時停止">&#9198;</button>
+        <button class="mobile-dot-btn" id="mbtnReset" aria-label="リセット">&#8634;</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-connector"></div>
+
+  <!-- 速度コントロール -->
+  <div class="mobile-dot-group">
+    <span class="mobile-dot-group-label">SPEED</span>
+    <div class="mobile-speed">
+      <button class="mobile-dot-btn spd-on mspeed-btn" data-speed="1">1x</button>
+      <div class="mobile-connector"></div>
+      <button class="mobile-dot-btn mspeed-btn" data-speed="5">5x</button>
+      <div class="mobile-connector"></div>
+      <button class="mobile-dot-btn mspeed-btn" data-speed="10">10x</button>
+      <div class="mobile-connector"></div>
+      <button class="mobile-dot-btn mspeed-btn" data-speed="100">100x</button>
+    </div>
+  </div>
+
+  <div class="mobile-connector"></div>
+
+  <!-- 入電数コントロール -->
+  <div class="mobile-dot-group">
+    <span class="mobile-dot-group-label">CALLS / DAY</span>
+    <div class="mobile-calls">
+      <div class="mobile-calls-row">
+        <button class="mobile-dot-btn" id="mbtnCallDown" aria-label="入電数減少">-</button>
+        <span id="mobileCallDisplay">850</span>
+        <button class="mobile-dot-btn" id="mbtnCallUp" aria-label="入電数増加">+</button>
+      </div>
+    </div>
+  </div>
+
+  <a class="mobile-gh-link" href="https://github.com/d510/CC-Flow-Viz" target="_blank" rel="noopener">[ GitHub ]</a>
+</div>
 
 <script>
 
@@ -201,6 +444,13 @@ const L = {
   ABANDONED: { x: 830, y:  67, w: 165,  h: 383 },
   FOOTER:    { x:   0, y: 455, w: 1000, h: 105 },
 };
+
+// ============================================================
+// モバイル判定
+// ============================================================
+function _isMobile() {
+  return window.innerWidth <= 768;
+}
 
 // ============================================================
 // SeededRandom  ─ p5 の random() 非依存
@@ -579,8 +829,12 @@ function setup() {
   frameRate(CONFIG.FRAME_RATE);
   textFont('Courier New');
   document.getElementById('callInput').value = DEFAULT_CALLS;
+  document.getElementById('mobileCallDisplay').textContent = DEFAULT_CALLS;
   sim = new Simulation(DEFAULT_CALLS);
   _initControls();
+  _initMobileControls();
+  _applyScale();
+  window.addEventListener('resize', _applyScale);
 }
 
 function draw() {
@@ -612,15 +866,103 @@ function draw() {
   if (isPaused)    _drawOverlay('⏸  一時停止中', true);
 }
 
+// ============================================================
+// レスポンシブ: ウィンドウ幅に合わせてラッパーをスケール
+// ============================================================
+function _applyScale() {
+  const CANVAS_W = CONFIG.CANVAS_W;
+  const CANVAS_H = CONFIG.CANVAS_H;
+  const wrapper  = document.getElementById('viz-wrapper');
+  const vw       = window.innerWidth;
+
+  if (_isMobile()) {
+    // モバイル: transformスケーリングを使わず、キャンバス自体をリサイズ
+    wrapper.style.transform = 'none';
+    wrapper.style.marginBottom = '0';
+    // キャンバスコンテナを画面幅いっぱいに
+    const container = document.getElementById('canvas-container');
+    container.style.width = vw + 'px';
+    container.style.overflow = 'hidden';
+    // p5キャンバスはそのままだが、CSS transformで縮小（座標はp5内部で1000px基準のまま）
+    const canvasEl = document.querySelector('#canvas-container canvas');
+    if (canvasEl) {
+      const mobileScale = vw / CANVAS_W;
+      canvasEl.style.transformOrigin = 'top left';
+      canvasEl.style.transform = `scale(${mobileScale})`;
+      canvasEl.style.width = CANVAS_W + 'px';
+      canvasEl.style.height = CANVAS_H + 'px';
+      // コンテナの高さをスケール後に合わせる
+      container.style.height = (CANVAS_H * mobileScale) + 'px';
+    }
+  } else {
+    // PC: 従来通り wrapper ごとスケール
+    const scale = Math.min(1, vw / CANVAS_W);
+    wrapper.style.transform = `scale(${scale})`;
+
+    // コントロールバーの実際の高さ取得（flex-wrap で変化する）
+    const ctrlH   = document.getElementById('controls').offsetHeight || 40;
+    const rawH    = ctrlH + CANVAS_H;    // スケール前の総高さ
+    const scaledH = rawH * scale;        // スケール後の見た目高さ
+
+    // transform はレイアウト上のサイズを変えないため
+    // marginBottom で縮小した分を詰める（負の値）
+    wrapper.style.marginBottom = `${scaledH - rawH}px`;
+
+    // キャンバスのCSS transformをリセット
+    const canvasEl = document.querySelector('#canvas-container canvas');
+    if (canvasEl) {
+      canvasEl.style.transform = '';
+      canvasEl.style.width = '';
+      canvasEl.style.height = '';
+    }
+    const container = document.getElementById('canvas-container');
+    container.style.width = '';
+    container.style.height = '';
+    container.style.overflow = '';
+  }
+}
+
 function mousePressed() {
   if (!showSummary) return;
+  if (_isMobile()) return; // モバイルではtouchStartedで処理
   // サマリー画面の「最初から再生」ボタン
   const bx = width / 2 - 110, by = height / 2 + 108;
   if (mouseX > bx && mouseX < bx + 220 && mouseY > by && mouseY < by + 36) _onStart();
 }
 
+// タッチデバイス: CSS scale を考慮した座標補正でサマリーボタン判定
+function touchStarted() {
+  if (!showSummary) return false;
+  const t = touches[0];
+  if (!t) return false;
+
+  // キャンバス要素のビューポート上の位置
+  const canvas = document.querySelector('#canvas-container canvas');
+  const rect   = canvas.getBoundingClientRect();
+
+  // スケール値を取得（モバイルではキャンバス自体のCSSスケール、PCではラッパーのスケール）
+  let scale = 1;
+  if (_isMobile()) {
+    scale = rect.width / CONFIG.CANVAS_W;
+  } else {
+    const wrapperStyle = document.getElementById('viz-wrapper').style.transform;
+    const scaleMatch   = wrapperStyle.match(/scale\(([\d.]+)\)/);
+    scale = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
+  }
+
+  // タッチ座標をキャンバス内座標に変換（スケール補正込み）
+  const tx = (t.x - rect.left) / scale;
+  const ty = (t.y - rect.top)  / scale;
+
+  const bx = width / 2 - 110, by = height / 2 + 108;
+  if (tx > bx && tx < bx + 220 && ty > by && ty < by + 36) {
+    _onStart();
+  }
+  return false; // スクロール等のデフォルト動作を抑制
+}
+
 // ============================================================
-// ボタン・コントロール
+// ボタン・コントロール（PC用）
 // ============================================================
 
 function _initControls() {
@@ -636,9 +978,77 @@ function _initControls() {
   });
 }
 
+// ============================================================
+// ボタン・コントロール（モバイル用）
+// ============================================================
+
+function _initMobileControls() {
+  const mbtnStart = document.getElementById('mbtnStart');
+  const mbtnPause = document.getElementById('mbtnPause');
+  const mbtnReset = document.getElementById('mbtnReset');
+  const mbtnCallUp = document.getElementById('mbtnCallUp');
+  const mbtnCallDown = document.getElementById('mbtnCallDown');
+
+  // タッチとクリック両方に対応（重複防止）
+  function addTapListener(el, handler) {
+    let touchHandled = false;
+    el.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      touchHandled = true;
+      handler();
+    }, { passive: false });
+    el.addEventListener('click', function(e) {
+      if (touchHandled) {
+        touchHandled = false;
+        return;
+      }
+      handler();
+    });
+  }
+
+  addTapListener(mbtnStart, _onStart);
+  addTapListener(mbtnPause, _onPause);
+  addTapListener(mbtnReset, _onReset);
+
+  // 速度ボタン
+  document.querySelectorAll('.mspeed-btn').forEach(btn => {
+    addTapListener(btn, () => {
+      speedMul = parseFloat(btn.dataset.speed);
+      document.querySelectorAll('.mspeed-btn').forEach(b => b.classList.remove('spd-on'));
+      btn.classList.add('spd-on');
+      // PC側も同期
+      document.querySelectorAll('.speed-btn').forEach(b => {
+        b.classList.toggle('spd-on', b.dataset.speed === btn.dataset.speed);
+      });
+    });
+  });
+
+  // 入電数 +/-
+  addTapListener(mbtnCallUp, () => {
+    let val = parseInt(document.getElementById('callInput').value) || DEFAULT_CALLS;
+    val = Math.min(2000, val + 50);
+    document.getElementById('callInput').value = val;
+    document.getElementById('mobileCallDisplay').textContent = val;
+  });
+
+  addTapListener(mbtnCallDown, () => {
+    let val = parseInt(document.getElementById('callInput').value) || DEFAULT_CALLS;
+    val = Math.max(50, val - 50);
+    document.getElementById('callInput').value = val;
+    document.getElementById('mobileCallDisplay').textContent = val;
+  });
+
+  // PC側の入電数入力が変更されたらモバイル側にも反映
+  document.getElementById('callInput').addEventListener('change', () => {
+    document.getElementById('mobileCallDisplay').textContent = document.getElementById('callInput').value;
+  });
+}
+
 function _onStart() {
   const n = Math.min(2000, Math.max(50, parseInt(document.getElementById('callInput').value) || DEFAULT_CALLS));
   document.getElementById('callInput').value = n;
+  document.getElementById('mobileCallDisplay').textContent = n;
   sim         = new Simulation(n);
   hasStarted  = true;
   isPaused    = false;
@@ -656,6 +1066,7 @@ function _onPause() {
 function _onReset() {
   const n = Math.min(2000, Math.max(50, parseInt(document.getElementById('callInput').value) || DEFAULT_CALLS));
   document.getElementById('callInput').value = n;
+  document.getElementById('mobileCallDisplay').textContent = n;
   sim         = new Simulation(n);
   hasStarted  = false;
   isPaused    = false;
@@ -667,19 +1078,33 @@ function _onReset() {
 function _syncButtons() {
   const bs = document.getElementById('btnStart');
   const bp = document.getElementById('btnPause');
+  const mbs = document.getElementById('mbtnStart');
+  const mbp = document.getElementById('mbtnPause');
 
   if (!hasStarted || sim.finished) {
     bs.textContent = '▶ 開始';         bs.disabled = false;
     bp.textContent = '⏸ 一時停止';    bp.disabled = true;
     bp.classList.remove('hl');
+    mbs.textContent = '▶';             mbs.disabled = false;
+    mbs.classList.add('hl');
+    mbp.textContent = '⏸';            mbp.disabled = true;
+    mbp.classList.remove('hl');
   } else if (isPaused) {
     bs.textContent = '▶ 再スタート';   bs.disabled = false;
     bp.textContent = '▶ 再開';         bp.disabled = false;
     bp.classList.add('hl');
+    mbs.textContent = '▶';             mbs.disabled = false;
+    mbs.classList.remove('hl');
+    mbp.textContent = '▶';             mbp.disabled = false;
+    mbp.classList.add('hl');
   } else {
     bs.textContent = '↺ 再スタート';   bs.disabled = false;
     bp.textContent = '⏸ 一時停止';    bp.disabled = false;
     bp.classList.remove('hl');
+    mbs.textContent = '↺';             mbs.disabled = false;
+    mbs.classList.remove('hl');
+    mbp.textContent = '⏸';            mbp.disabled = false;
+    mbp.classList.remove('hl');
   }
 }
 

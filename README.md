@@ -12,7 +12,6 @@
 > `index.html` をブラウザで開くだけで動作します（サーバー不要）。
 
 - **GitHub Pages**: https://d510.github.io/CC-Flow-Viz/
-- **ポートフォリオ**: https://hakolabo.fun/portfolio/cc_flow_viz/
 
 ---
 
